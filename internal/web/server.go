@@ -427,6 +427,12 @@ type chatBody struct {
 	FunctionCall    any               `json:"function_call,omitempty"`
 	Reasoning       *reasoningConfig  `json:"reasoning,omitempty"`
 	ReasoningEffort string            `json:"reasoning_effort,omitempty"`
+	ResponseFormat  *responseFormat   `json:"response_format,omitempty"`
+}
+
+type responseFormat struct {
+	Type       string         `json:"type"`
+	JSONSchema map[string]any `json:"json_schema,omitempty"`
 }
 
 func modelTone(model string) string {
@@ -559,9 +565,10 @@ type oaiMsg struct {
 }
 
 type oaiReq struct {
-	Model    string   `json:"model"`
-	Messages []oaiMsg `json:"messages"`
-	Stream   bool     `json:"stream"`
+	Model          string          `json:"model"`
+	ResponseFormat *responseFormat `json:"response_format,omitempty"`
+	Messages       []oaiMsg        `json:"messages"`
+	Stream         bool            `json:"stream"`
 	// optional account routing
 	User           string               `json:"user"`
 	AccountID      string               `json:"accountId"`
@@ -628,6 +635,7 @@ func (s *Server) openaiChat(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad json", http.StatusBadRequest)
 		return
 	}
+	responseFormat := body.ResponseFormat
 	effort := body.ReasoningEffort
 	if body.Reasoning != nil && strings.TrimSpace(body.Reasoning.Effort) != "" {
 		effort = body.Reasoning.Effort
@@ -937,6 +945,9 @@ APPLICATION_REQUEST_AND_EVIDENCE:
 		return
 	}
 
+	if responseFormat != nil && (responseFormat.Type == "json_object" || responseFormat.Type == "json_schema") {
+		res.Text = normalizeJSONText(res.Text)
+	}
 	content := any(res.Text)
 	if len(res.Images) > 0 {
 		parts := []any{map[string]any{"type": "text", "text": res.Text}}

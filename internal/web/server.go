@@ -12,6 +12,7 @@ import (
 	"log"
 	"m365-native/internal/auth"
 	"m365-native/internal/chathub"
+	"m365-native/internal/mcp"
 	"net"
 	"net/http"
 	"strings"
@@ -43,6 +44,7 @@ type Server struct {
 	apiKeys            *apiKeyStore
 	debug              *debugStore
 	settings           *settingsStore
+	mcpManager         *mcp.Manager
 	responseMu         sync.Mutex
 	responseMessages   map[string][]oaiMsg
 }
@@ -69,6 +71,7 @@ func New() (*Server, error) {
 		apiKeys:            openAPIKeys(),
 		debug:              openDebugStore(),
 		settings:           openSettingsStore(),
+		mcpManager:         mcp.NewManager(),
 		responseMessages:   map[string][]oaiMsg{},
 	}, nil
 }
@@ -83,6 +86,8 @@ func (s *Server) Routes() http.Handler {
 	m.HandleFunc("/api/admin/settings", s.adminSettings)
 	m.HandleFunc("/api/admin/debug/logs", s.debugList)
 	m.HandleFunc("/api/admin/debug/detail", s.debugDetail)
+	m.HandleFunc("/api/admin/mcp/status", s.mcpStatus)
+	m.HandleFunc("/api/admin/mcp/refresh", s.mcpRefresh)
 	m.HandleFunc("/api/health", s.health)
 	m.HandleFunc("/api/accounts", s.accounts)
 	m.HandleFunc("/api/accounts/refresh", s.refreshAccount)

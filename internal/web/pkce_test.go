@@ -83,7 +83,6 @@ func TestStartPKCEUsesConfiguredRedirectURIExactly(t *testing.T) {
 	}
 }
 
-=======
 func TestPKCEStatusReportsPendingAndExpired(t *testing.T) {
 	s := &Server{pkce: map[string]pendingPKCE{
 		"pending": {Created: time.Now(), Status: "pending"},

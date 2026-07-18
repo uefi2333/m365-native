@@ -7,7 +7,11 @@ import "os"
 const DefaultClientID = "c0ab8ce9-e9a0-42e7-b064-33d422df41f1"
 const FOCIClientID = "d3590ed6-52b3-4102-aeff-aad2292ab01c"
 const DefaultAuthority = "https://login.microsoftonline.com/common"
-const DefaultRedirectURI = "https://login.microsoftonline.com/common/oauth2/nativeclient"
+
+// Loopback callback lets the browser return to the running gateway automatically.
+// Set M365_REDIRECT_URI back to the nativeclient URI when using a tenant/client
+// registration that does not allow loopback redirects.
+const DefaultRedirectURI = "http://127.0.0.1:4141/api/auth/callback"
 const DefaultScope = "openid profile offline_access https://substrate.office.com/sydney/M365Chat.Read https://substrate.office.com/sydney/sydney.readwrite"
 
 func ClientID() string {

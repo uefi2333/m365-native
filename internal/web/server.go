@@ -25,6 +25,9 @@ import (
 type pendingPKCE struct {
 	Verifier string
 	Created  time.Time
+	Status   string
+	Account  any
+	Error    string
 }
 
 type Server struct {
@@ -85,6 +88,7 @@ func (s *Server) Routes() http.Handler {
 	m.HandleFunc("/api/accounts/refresh", s.refreshAccount)
 	m.HandleFunc("/api/accounts/delete", s.deleteAccount)
 	m.HandleFunc("/api/auth/start", s.startPKCE)
+	m.HandleFunc("/api/auth/status", s.pkceStatus)
 	m.HandleFunc("/api/auth/callback", s.callbackPKCE)
 	m.HandleFunc("/api/chat", s.chatOnce)
 	m.HandleFunc("/api/chat/stream", s.chatStream)
@@ -359,7 +363,7 @@ func (s *Server) startPKCE(w http.ResponseWriter, _ *http.Request) {
 	}
 	state := hex.EncodeToString(b)
 	s.mu.Lock()
-	s.pkce[state] = pendingPKCE{Verifier: v, Created: time.Now()}
+	s.pkce[state] = pendingPKCE{Verifier: v, Created: time.Now(), Status: "pending"}
 	s.mu.Unlock()
 	jsonOut(w, map[string]string{
 		"status": "pkce_ready",
@@ -375,6 +379,33 @@ func (s *Server) startPKCE(w http.ResponseWriter, _ *http.Request) {
 		"redirectUri": auth.RedirectURI(),
 		"note":        "If redirect is nativeclient, paste the final URL/code into /api/auth/callback after login.",
 	})
+}
+
+func (s *Server) pkceStatus(w http.ResponseWriter, r *http.Request) {
+	state := r.URL.Query().Get("state")
+	if state == "" {
+		http.Error(w, "missing state", http.StatusBadRequest)
+		return
+	}
+	s.mu.Lock()
+	p, ok := s.pkce[state]
+	if ok && time.Since(p.Created) > 10*time.Minute {
+		delete(s.pkce, state)
+		ok = false
+	}
+	s.mu.Unlock()
+	if !ok {
+		jsonOut(w, map[string]any{"status": "expired"})
+		return
+	}
+	out := map[string]any{"status": p.Status}
+	if p.Account != nil {
+		out["account"] = p.Account
+	}
+	if p.Error != "" {
+		out["error"] = p.Error
+	}
+	jsonOut(w, out)
 }
 
 func (s *Server) callbackPKCE(w http.ResponseWriter, r *http.Request) {
@@ -397,9 +428,6 @@ func (s *Server) callbackPKCE(w http.ResponseWriter, r *http.Request) {
 	}
 	s.mu.Lock()
 	p, ok := s.pkce[state]
-	if ok {
-		delete(s.pkce, state)
-	}
 	s.mu.Unlock()
 	if !ok || time.Since(p.Created) > 10*time.Minute {
 		http.Error(w, "invalid or expired state", http.StatusBadRequest)
@@ -407,14 +435,29 @@ func (s *Server) callbackPKCE(w http.ResponseWriter, r *http.Request) {
 	}
 	tok, err := auth.ExchangeCode(code, p.Verifier, auth.RedirectURI())
 	if err != nil {
+		s.mu.Lock()
+		p.Status = "error"
+		p.Error = err.Error()
+		s.pkce[state] = p
+		s.mu.Unlock()
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 	acc, err := s.tokens.Upsert(tok)
 	if err != nil {
+		s.mu.Lock()
+		p.Status = "error"
+		p.Error = err.Error()
+		s.pkce[state] = p
+		s.mu.Unlock()
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	s.mu.Lock()
+	p.Status = "authenticated"
+	p.Account = map[string]any{"id": acc.ID, "email": acc.Email, "displayName": acc.DisplayName, "status": acc.Status, "oid": acc.OID, "tid": acc.TID}
+	s.pkce[state] = p
+	s.mu.Unlock()
 	// Browser loopback callbacks should finish in a friendly page instead of
 	// displaying a raw JSON response. Keep JSON for the manual/API flow.
 	if strings.HasPrefix(auth.RedirectURI(), "http://127.0.0.1:") || strings.HasPrefix(auth.RedirectURI(), "http://localhost:") {

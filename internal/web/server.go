@@ -49,9 +49,13 @@ func New() (*Server, error) {
 	}
 	password, mustChange := loadAdminPassword()
 	return &Server{
-		tokens:             store,
-		pkce:               map[string]pendingPKCE{},
-		chat:               chathub.NewClient(),
+		tokens: store,
+		pkce:   map[string]pendingPKCE{},
+		chat: func() *chathub.Client {
+			c := chathub.NewClient()
+			c.Trace = func(meta map[string]any) { fmt.Printf("[multimodal-trace] %s\\n", mustJSON(meta)) }
+			return c
+		}(),
 		sessions:           openSessionStore(),
 		adminPassword:      password,
 		adminSessions:      map[string]time.Time{},

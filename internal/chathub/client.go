@@ -70,6 +70,8 @@ type Result struct {
 type Client struct {
 	HTTPHeader http.Header
 	Dialer     *websocket.Dialer
+	// Trace receives attachment-only metadata; URL contents are never exposed.
+	Trace func(map[string]any)
 }
 
 func NewClient() *Client {
@@ -155,6 +157,13 @@ func (c *Client) chatWithHandlers(ctx context.Context, acc Account, req Request,
 	}
 
 	payload := chatPayload(req.Text, req.SessionID, req.ConversationID, requestID, req.Tone, firstTurn, req.Attachments, req.Tools, req.ToolChoice)
+	if c.Trace != nil {
+		meta := map[string]any{"stage": "chathub_payload", "attachment_count": len(req.Attachments), "payload_has_attachments": strings.Contains(payload, `"attachments"`), "attachments": []map[string]any{}}
+		for _, a := range req.Attachments {
+			meta["attachments"] = append(meta["attachments"].([]map[string]any), map[string]any{"type": a.Type, "mime_type": a.MimeType, "url_length": len(a.URL), "data_url": strings.HasPrefix(a.URL, "data:"), "name": a.Name})
+		}
+		c.Trace(meta)
+	}
 	if err := conn.WriteMessage(websocket.TextMessage, []byte(payload)); err != nil {
 		return Result{}, fmt.Errorf("chat send: %w", err)
 	}

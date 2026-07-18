@@ -116,8 +116,8 @@ func (c *Client) chatWithHandlers(ctx context.Context, acc Account, req Request,
 	if acc.AccessToken == "" || acc.OID == "" || acc.TID == "" {
 		return Result{}, fmt.Errorf("missing access token / oid / tid")
 	}
-	if strings.TrimSpace(req.Text) == "" {
-		return Result{}, fmt.Errorf("empty prompt")
+	if strings.TrimSpace(req.Text) == "" && len(req.Attachments) == 0 {
+		return Result{}, fmt.Errorf("empty prompt and no attachments")
 	}
 	if req.Tone == "" {
 		req.Tone = defaultTone

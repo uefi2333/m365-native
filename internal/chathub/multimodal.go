@@ -5,4 +5,5 @@ type Attachment struct {
 	URL      string `json:"url,omitempty"`
 	Name     string `json:"name,omitempty"`
 	MimeType string `json:"mimeType,omitempty"`
+	Detail   string `json:"detail,omitempty"`
 }

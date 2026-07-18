@@ -487,8 +487,8 @@ func (s *Server) chatOnce(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	text := strings.TrimSpace(firstNonEmpty(body.Message, body.Prompt))
-	if text == "" {
-		http.Error(w, "message required", http.StatusBadRequest)
+	if text == "" && len(body.Attachments) == 0 {
+		http.Error(w, "message or attachment required", http.StatusBadRequest)
 		return
 	}
 	if body.SessionKey != "" {

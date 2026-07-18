@@ -22,7 +22,8 @@ func parseContent(c any) (string, []chathub.Attachment) {
 		if !ok {
 			continue
 		}
-		switch m["type"] {
+		typ, _ := m["type"].(string)
+		switch typ {
 		case "text":
 			if v, ok := m["text"].(string); ok {
 				text.WriteString(v)
@@ -30,26 +31,38 @@ func parseContent(c any) (string, []chathub.Attachment) {
 		case "image_url":
 			if u, ok := m["image_url"].(map[string]any); ok {
 				if v, ok := u["url"].(string); ok {
-					files = append(files, chathub.Attachment{Type: "image", URL: v, MimeType: "image/*"})
+					a := chathub.Attachment{Type: "image", URL: v, MimeType: "image/*"}
+					if d, ok := u["detail"].(string); ok {
+						a.Detail = d
+					}
+					files = append(files, a)
 				}
 			}
-		case "image":
-			if u, ok := m["url"].(string); ok {
+		case "input_image", "image":
+			u := stringValue(m, "image_url", "url", "source")
+			if u != "" {
 				files = append(files, chathub.Attachment{Type: "image", URL: u, MimeType: "image/*"})
 			}
-		case "file":
-			f := chathub.Attachment{Type: "file"}
-			if v, ok := m["file_id"].(string); ok {
-				f.URL = v
+		case "input_file", "file":
+			u := stringValue(m, "file_data", "file_url", "url", "source", "file_id")
+			if u != "" || stringValue(m, "filename", "name") != "" {
+				files = append(files, chathub.Attachment{Type: "file", URL: u, Name: stringValue(m, "filename", "name"), MimeType: stringValue(m, "mime_type", "mimeType", "content_type")})
 			}
-			if v, ok := m["filename"].(string); ok {
-				f.Name = v
+		case "input_audio", "audio":
+			u := stringValue(m, "data", "audio_url", "url", "source")
+			if u != "" {
+				files = append(files, chathub.Attachment{Type: "audio", URL: u, MimeType: stringValue(m, "mime_type", "mimeType", "format", "content_type")})
 			}
-			if v, ok := m["mime_type"].(string); ok {
-				f.MimeType = v
-			}
-			files = append(files, f)
 		}
 	}
 	return text.String(), files
+}
+
+func stringValue(m map[string]any, keys ...string) string {
+	for _, k := range keys {
+		if v, ok := m[k].(string); ok && strings.TrimSpace(v) != "" {
+			return v
+		}
+	}
+	return ""
 }

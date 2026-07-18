@@ -1,3 +1,5 @@
+// Codex model catalog compatibility lives here. It is intentionally kept in
+// package web because route handlers share unexported request and settings types.
 package web
 
 import (
@@ -16,6 +18,38 @@ type reasoningConfig struct {
 type modelSpec struct {
 	ID, Owner string
 	Tools     bool
+}
+
+type reasoningEffortPreset struct {
+	Effort      string `json:"effort"`
+	Description string `json:"description"`
+}
+
+var advertisedReasoningEfforts = []reasoningEffortPreset{
+	{Effort: "none", Description: "Disable additional reasoning."},
+	{Effort: "minimal", Description: "Fast responses with minimal reasoning."},
+	{Effort: "low", Description: "Fast responses with lighter reasoning."},
+	{Effort: "medium", Description: "Balances speed and reasoning depth for everyday tasks."},
+	{Effort: "high", Description: "Greater reasoning depth for complex problems."},
+	{Effort: "xhigh", Description: "Extra high reasoning depth for complex problems."},
+}
+
+// gatewayCodexBaseInstructions is returned only in the Codex model catalog.
+// Codex uses it to build its own request instructions; it is not interpreted
+// or forwarded directly by the gateway's ChatHub adapter.
+const gatewayCodexBaseInstructions = `You are Codex, a coding agent collaborating with the user in their workspace. Follow the user's request, inspect the repository before making changes, preserve unrelated work, and verify changes proportionately. Keep responses clear, concise, and grounded in observed evidence.`
+
+func codexModelMessages() map[string]any {
+	return map[string]any{
+		"instructions_template": gatewayCodexBaseInstructions,
+		"instructions_variables": map[string]string{
+			"personality_default":   "",
+			"personality_friendly":  "",
+			"personality_pragmatic": "",
+		},
+		"approvals":   nil,
+		"auto_review": nil,
+	}
 }
 
 var gatewayModels = []modelSpec{
@@ -101,17 +135,31 @@ func modelCatalog() []map[string]any {
 		modalities := []string{"text", "image"}
 		caps := map[string]any{
 			"chat_completions": true, "responses": true, "streaming": true,
-			"tools": true, "reasoning": true, "reasoning_efforts": []string{"none", "minimal", "low", "medium", "high", "xhigh"},
+			"tools": true, "reasoning": true,
+			"reasoning_efforts": advertisedReasoningEfforts, "supported_reasoning_levels": advertisedReasoningEfforts,
 			"reasoning_mode": "gateway_tone_routing", "supports_tools": true, "tool_calls": true,
 			"function_calling": true, "supports_function_calling": true, "supports_vision": true,
 			"vision": true, "modalities": modalities, "input_modalities": modalities,
 			"output_modalities": []string{"text"}, "supported_features": features,
 		}
 		out = append(out, map[string]any{
-			"id": m.ID, "object": "model", "owned_by": m.Owner,
+			"id": m.ID, "slug": m.ID, "display_name": m.ID, "description": "Microsoft 365 gateway model route.",
+			"base_instructions": gatewayCodexBaseInstructions, "model_messages": codexModelMessages(),
+			"default_reasoning_level": "medium", "object": "model", "owned_by": m.Owner,
+			"shell_type": "shell_command", "visibility": "list", "supported_in_api": true, "priority": 1,
+			"additional_speed_tiers": []string{}, "service_tiers": []any{},
+			"availability_nux": nil, "upgrade": nil, "include_skills_usage_instructions": false,
+			"supports_reasoning_summaries": true, "default_reasoning_summary": "none",
+			"support_verbosity": true, "default_verbosity": "low", "apply_patch_tool_type": "freeform",
+			"web_search_tool_type": "text_and_image", "truncation_policy": map[string]any{"mode": "tokens", "limit": 10000},
+			"supports_parallel_tool_calls": true, "supports_image_detail_original": true,
+			"max_context_window": l.ContextWindow, "effective_context_window_percent": 95,
+			"experimental_supported_tools": []any{}, "supports_search_tool": true, "use_responses_lite": false,
+			"tool_mode": "code_mode_only", "multi_agent_version": "v2",
 			"context_window": l.ContextWindow, "max_input_tokens": l.MaxInputTokens, "max_output_tokens": l.MaxOutputTokens,
 			"capabilities": caps, "supports_tools": true, "tool_calls": true,
-			"function_calling": true, "supports_function_calling": true, "supports_vision": true,
+			"supported_reasoning_levels": advertisedReasoningEfforts,
+			"function_calling":           true, "supports_function_calling": true, "supports_vision": true,
 			"vision": true, "modalities": modalities, "input_modalities": modalities,
 			"output_modalities": []string{"text"}, "supported_features": features,
 		})

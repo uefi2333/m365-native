@@ -21,7 +21,7 @@ func openAIChoice(v map[string]any) (map[string]any, string) {
 }
 
 func writeResponsesResult(w http.ResponseWriter, model string, stream bool, src map[string]any) {
-	id := "resp_" + uuid.NewString()
+	id := firstNonEmpty(fmt.Sprint(src["m365_response_id"]), "resp_"+uuid.NewString())
 	msg, _ := openAIChoice(src)
 	var output []any
 	if calls, ok := msg["tool_calls"].([]any); ok {

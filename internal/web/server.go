@@ -37,6 +37,8 @@ type Server struct {
 	apiKeys            *apiKeyStore
 	debug              *debugStore
 	settings           *settingsStore
+	responseMu         sync.Mutex
+	responseMessages   map[string][]oaiMsg
 }
 
 func New() (*Server, error) {
@@ -57,6 +59,7 @@ func New() (*Server, error) {
 		apiKeys:            openAPIKeys(),
 		debug:              openDebugStore(),
 		settings:           openSettingsStore(),
+		responseMessages:   map[string][]oaiMsg{},
 	}, nil
 }
 

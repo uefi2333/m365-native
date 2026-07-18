@@ -183,6 +183,16 @@ func (s *Server) responses(w http.ResponseWriter, r *http.Request) {
 		writeResponsesError(w, 400, "invalid_request_error", err.Error())
 		return
 	}
+	if body.PreviousResponseID != "" {
+		s.responseMu.Lock()
+		prior := append([]oaiMsg(nil), s.responseMessages[body.PreviousResponseID]...)
+		s.responseMu.Unlock()
+		if len(prior) == 0 {
+			writeResponsesError(w, 400, "invalid_request_error", "unknown previous_response_id")
+			return
+		}
+		o.Messages = append(prior, o.Messages...)
+	}
 	if body.Stream {
 		s.streamResponsesAdapter(w, r, o, firstNonEmpty(body.Model, "m365-copilot"))
 		return
@@ -199,6 +209,32 @@ func (s *Server) responses(w http.ResponseWriter, r *http.Request) {
 	if !responsesOutputHasContent(out) {
 		writeResponsesError(w, http.StatusBadGateway, "upstream_error", "ChatHub returned an empty response; no reusable message was created")
 		return
+	}
+	// Retain the normalized history so a subsequent previous_response_id can
+	// validate its function_call_output against the original tool call.
+	if _, ok := out["id"].(string); ok {
+		// Use the same public response id that writeResponsesResult exposes.
+		publicID := "resp_" + uuid.NewString()
+		out["m365_response_id"] = publicID
+		stored := append([]oaiMsg(nil), o.Messages...)
+		if msg, _ := openAIChoice(out); msg != nil {
+			if calls, ok := msg["tool_calls"].([]any); ok && len(calls) > 0 {
+				converted := make([]map[string]any, 0, len(calls))
+				for _, call := range calls {
+					if m, ok := call.(map[string]any); ok {
+						converted = append(converted, m)
+					}
+				}
+				stored = append(stored, oaiMsg{Role: "assistant", ToolCalls: converted})
+			} else {
+				if text, _ := msg["content"].(string); text != "" {
+					stored = append(stored, oaiMsg{Role: "assistant", Content: text})
+				}
+			}
+		}
+		s.responseMu.Lock()
+		s.responseMessages[publicID] = stored
+		s.responseMu.Unlock()
 	}
 	writeResponsesResult(w, firstNonEmpty(body.Model, "m365-copilot"), body.Stream, out)
 }

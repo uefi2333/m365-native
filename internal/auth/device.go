@@ -127,13 +127,21 @@ func PollDeviceCode(deviceCode string) (TokenSet, bool, error) {
 		set.HomeOID = firstNonEmpty(claims["oid"], claims["sub"])
 		set.TenantID = firstNonEmpty(claims["tid"], claims["tenant_id"])
 	}
-	if set.Email == "" && tr.IDToken != "" {
+	if tr.IDToken != "" {
 		if claims, err := decodeJWTClaims(tr.IDToken); err == nil {
-			set.Email = firstNonEmpty(claims["preferred_username"], claims["email"], claims["upn"])
-			set.DisplayName = firstNonEmpty(claims["name"], set.Email)
-			set.HomeOID = firstNonEmpty(claims["oid"], claims["sub"], set.HomeOID)
-			set.TenantID = firstNonEmpty(claims["tid"], claims["tenant_id"], set.TenantID)
+			if set.Email == "" {
+				set.Email = firstNonEmpty(claims["preferred_username"], claims["email"], claims["upn"])
+				set.DisplayName = firstNonEmpty(claims["name"], set.Email)
+				set.HomeOID = firstNonEmpty(claims["oid"], claims["sub"], set.HomeOID)
+			}
+			set.TenantID = firstNonEmpty(set.TenantID, claims["tid"], claims["tenant_id"])
 		}
+	}
+	if set.TenantID == "" {
+		return TokenSet{}, false, fmt.Errorf("token rejected: missing tenant ID")
+	}
+	if set.TenantID != DefaultTenantID {
+		return TokenSet{}, false, fmt.Errorf("token rejected: tenant %s is not allowed", set.TenantID)
 	}
 	return set, true, nil
 }

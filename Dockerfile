@@ -19,6 +19,7 @@ ENV M365_LISTEN=0.0.0.0:4141 \
     M365_TOKEN_CACHE=/data/token-cache.json \
     M365_SESSION_CACHE=/data/sessions.json \
     M365_API_KEYS=/data/api-keys.json \
-    M365_ADMIN_PASSWORD_FILE=/run/secrets/m365_admin_password
+    M365_ADMIN_PASSWORD_FILE=/data/admin-password \
+    M365_ADMIN_PASSWORD_BOOTSTRAP_FILE=/run/secrets/m365_admin_password
 VOLUME ["/data"]
 ENTRYPOINT ["/app/m365-native"]

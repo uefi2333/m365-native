@@ -11,6 +11,8 @@ services:
       M365_TOKEN_CACHE: /data/token-cache.json
       M365_SESSION_CACHE: /data/sessions.json
       M365_API_KEYS: /data/api-keys.json
+      M365_ADMIN_PASSWORD_FILE: /data/admin-password
+      M365_ADMIN_PASSWORD_BOOTSTRAP_FILE: /run/secrets/m365_admin_password
       M365_CHAT_TIMEOUT_SECONDS: "120"
       M365_IMAGE_TIMEOUT_SECONDS: "150"
     volumes:

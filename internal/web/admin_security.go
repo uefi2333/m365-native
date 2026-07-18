@@ -30,11 +30,16 @@ func adminPasswordPath() string {
 	return filepath.Join(home, ".config", "m365-native", "admin-password")
 }
 func loadAdminPassword() (string, bool) {
-	// A password changed through the console must survive service restarts, so
-	// the protected persisted value takes precedence over the bootstrap env var.
+	// The writable persisted value takes precedence over bootstrap sources.
 	if b, e := os.ReadFile(adminPasswordPath()); e == nil && strings.TrimSpace(string(b)) != "" {
 		p := strings.TrimSpace(string(b))
 		return p, p == defaultAdminPassword
+	}
+	if bootstrap := strings.TrimSpace(os.Getenv("M365_ADMIN_PASSWORD_BOOTSTRAP_FILE")); bootstrap != "" {
+		if b, e := os.ReadFile(bootstrap); e == nil && strings.TrimSpace(string(b)) != "" {
+			p := strings.TrimSpace(string(b))
+			return p, p == defaultAdminPassword
+		}
 	}
 	if p := strings.TrimSpace(os.Getenv("M365_ADMIN_PASSWORD")); p != "" {
 		return p, p == defaultAdminPassword
@@ -150,7 +155,7 @@ func (s *Server) adminChangePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := saveAdminPassword(b.New); err != nil {
-		writeOpenAIError(w, 500, "storage_error", "could not save administrator password")
+		writeOpenAIError(w, 500, "storage_error", "administrator password could not be saved; check the persistent data directory permissions")
 		return
 	}
 	s.mu.Lock()

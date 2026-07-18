@@ -46,6 +46,7 @@ type Client struct {
 	nextID    int64
 	closed    bool
 	toolCache ToolCache
+	http      *httpTransport
 }
 
 func StartStdio(ctx context.Context, command string, args []string, env map[string]string) (*Client, error) {
@@ -71,6 +72,9 @@ func StartStdio(ctx context.Context, command string, args []string, env map[stri
 }
 
 func (c *Client) request(ctx context.Context, method string, params any, dst any) error {
+	if c.http != nil {
+		return c.http.request(ctx, method, params, dst)
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.closed {
@@ -126,6 +130,9 @@ func (c *Client) request(ctx context.Context, method string, params any, dst any
 }
 
 func (c *Client) notify(method string, params any) error {
+	if c.http != nil {
+		return c.http.notify(context.Background(), method, params)
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.closed {
@@ -164,6 +171,9 @@ func (c *Client) CallTool(ctx context.Context, name string, args map[string]any)
 	return r, err
 }
 func (c *Client) Close() error {
+	if c.http != nil {
+		return c.http.close()
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.closed {

@@ -41,7 +41,16 @@ func (m *Manager) Start(ctx context.Context, cfg Config) error {
 		if !spec.Enabled {
 			continue
 		}
-		c, err := StartStdio(ctx, spec.Command, spec.Args, spec.Env)
+		var c *Client
+		var err error
+		switch spec.Transport {
+		case "", "stdio":
+			c, err = StartStdio(ctx, spec.Command, spec.Args, spec.Env)
+		case "streamable-http":
+			c = NewStreamableHTTP(spec.URL, spec.Headers)
+		default:
+			err = fmt.Errorf("unsupported transport %q", spec.Transport)
+		}
 		if err != nil {
 			m.Close()
 			return fmt.Errorf("start MCP server %q: %w", spec.Name, err)

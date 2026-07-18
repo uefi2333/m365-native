@@ -45,7 +45,15 @@ func parseContent(c any) (string, []chathub.Attachment) {
 				}
 			}
 		case "input_image", "image":
+			// Responses API accepts both image_url as a string and image_url
+			// as an object containing url. Also accept nested source.url/data.
 			u := stringValue(m, "image_url", "url", "source")
+			if raw, ok := m["image_url"].(map[string]any); ok {
+				u = stringValue(raw, "url", "data", "image_url")
+			}
+			if raw, ok := m["source"].(map[string]any); ok && u == "" {
+				u = stringValue(raw, "url", "data", "source")
+			}
 			if u != "" {
 				files = append(files, chathub.Attachment{Type: "image", URL: u, MimeType: "image/*"})
 			}

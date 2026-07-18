@@ -10,6 +10,7 @@ import (
 // responsesRequest is the OpenAI Responses API request subset supported by the gateway.
 type responsesRequest struct {
 	Model              string           `json:"model"`
+	AccountID          string           `json:"accountId,omitempty"`
 	Input              any              `json:"input"`
 	Tools              []map[string]any `json:"tools,omitempty"`
 	ToolChoice         any              `json:"tool_choice,omitempty"`
@@ -22,7 +23,7 @@ type responsesRequest struct {
 }
 
 func (r responsesRequest) openAI() (oaiReq, error) {
-	o := oaiReq{Model: r.Model, Stream: r.Stream, ToolChoice: r.ToolChoice, User: r.User}
+	o := oaiReq{Model: r.Model, AccountID: r.AccountID, Stream: r.Stream, ToolChoice: r.ToolChoice, User: r.User}
 	if r.Reasoning != nil {
 		o.Reasoning = r.Reasoning
 		o.ReasoningEffort = r.Reasoning.Effort
@@ -150,6 +151,24 @@ func (r anthropicRequest) openAI() (oaiReq, error) {
 			switch typ {
 			case "text":
 				text = append(text, b)
+			case "image":
+				// Anthropic vision blocks use source:{type:base64,
+				// media_type,data}. Normalize them to the shared multimodal
+				// parser's input_image shape without copying image bytes elsewhere.
+				source, _ := b["source"].(map[string]any)
+				if source != nil {
+					data, _ := source["data"].(string)
+					media, _ := source["media_type"].(string)
+					if data != "" {
+						if media == "" {
+							media = "application/octet-stream"
+						}
+						text = append(text, map[string]any{
+							"type":      "input_image",
+							"image_url": "data:" + media + ";base64," + data,
+						})
+					}
+				}
 			case "tool_use":
 				calls = append(calls, map[string]any{"id": b["id"], "type": "function", "function": map[string]any{"name": b["name"], "arguments": mustJSON(b["input"])}})
 			case "tool_result":

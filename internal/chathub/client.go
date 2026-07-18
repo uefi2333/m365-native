@@ -1,9 +1,13 @@
 package chathub
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
+	"mime/multipart"
 	"net/http"
 	"net/url"
 	"strings"
@@ -12,6 +16,13 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 )
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
 
 const (
 	rs          = "\x1e"
@@ -134,6 +145,9 @@ func (c *Client) chatWithHandlers(ctx context.Context, acc Account, req Request,
 		firstTurn = true
 	}
 	requestID := uuid.NewString()
+	if err := c.uploadAttachments(ctx, acc, req.ConversationID, req.Attachments); err != nil {
+		return Result{}, fmt.Errorf("upload attachment: %w", err)
+	}
 
 	wsURL, err := buildWSURL(acc, req.SessionID, req.ConversationID, requestID)
 	if err != nil {
@@ -362,15 +376,213 @@ func buildWSURL(acc Account, sessionID, conversationID, requestID string) (strin
 	return u, nil
 }
 
+func (c *Client) uploadAttachments(ctx context.Context, acc Account, conversationID string, attachments []Attachment) error {
+	for i := range attachments {
+		a := &attachments[i]
+		if a.Type != "image" || !strings.HasPrefix(a.URL, "data:") {
+			continue
+		}
+		comma := strings.IndexByte(a.URL, ',')
+		if comma < 0 {
+			return fmt.Errorf("invalid image data URL")
+		}
+		encoded := a.URL[comma+1:]
+		if strings.Contains(strings.ToLower(a.URL[:comma]), ";base64") == false {
+			return fmt.Errorf("image URL is not base64")
+		}
+		if _, err := base64.StdEncoding.DecodeString(encoded); err != nil {
+			return fmt.Errorf("decode image: %w", err)
+		}
+		var body bytes.Buffer
+		mw := multipart.NewWriter(&body)
+		_ = mw.WriteField("scenario", "UploadImage")
+		_ = mw.WriteField("conversationId", conversationID)
+		// The browser sends the complete data URL in FileBase64, including the
+		// media-type prefix. UploadFile accepts this form and returns docId.
+		_ = mw.WriteField("FileBase64", a.URL)
+		if c.Trace != nil {
+			c.Trace(map[string]any{"stage": "upload_start", "index": i, "conversation_id": conversationID, "mime_type": a.MimeType, "base64_length": len(encoded), "token_present": acc.AccessToken != ""})
+		}
+		_ = mw.WriteField("optionsSets", "cwcgptvsan")
+		_ = mw.WriteField("optionsSets", "flux_v3_gptv_enable_upload_multi_image_in_turn_wo_ch")
+		_ = mw.WriteField("optionsSets", "gptvnorm2048")
+		if err := mw.Close(); err != nil {
+			return err
+		}
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://substrate.office.com/m365Copilot/UploadFile", &body)
+		if err != nil {
+			return err
+		}
+		req.Header.Set("Content-Type", mw.FormDataContentType())
+		if acc.AccessToken != "" {
+			req.Header.Set("Authorization", "Bearer "+acc.AccessToken)
+		}
+		req.Header.Set("Accept", "application/json")
+		// Required by the enterprise Copilot UploadFile image-input path.
+		// This feature gate is documented in the prior reverse-proxy research
+		// and mirrors the PyRIT request flow.
+		req.Header.Set("X-Variants", "feature.EnableImageSupportInUploadFile")
+		req.Header.Set("X-Scenario", "OfficeWebIncludedCopilot")
+		if acc.OID != "" && acc.TID != "" {
+			req.Header.Set("X-AnchorMailbox", "Oid:"+acc.OID+"@"+acc.TID)
+		}
+		for k, vv := range c.HTTPHeader {
+			for _, v := range vv {
+				if k != "Origin" || v != "" {
+					req.Header.Add(k, v)
+				}
+			}
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			if c.Trace != nil {
+				c.Trace(map[string]any{"stage": "upload_http_error", "error": err.Error()})
+			}
+			return err
+		}
+		data, readErr := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
+		resp.Body.Close()
+		if readErr != nil {
+			return readErr
+		}
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			if c.Trace != nil {
+				c.Trace(map[string]any{"stage": "upload_http_status", "status": resp.StatusCode, "response": strings.TrimSpace(string(data[:minInt(len(data), 500)]))})
+			}
+			return fmt.Errorf("upload status %s: %s", resp.Status, strings.TrimSpace(string(data)))
+		}
+		var out struct {
+			DocID    string `json:"docId"`
+			FileName string `json:"fileName"`
+			FileType string `json:"fileType"`
+			Result   struct {
+				Value string `json:"value"`
+			} `json:"result"`
+		}
+		if err := json.Unmarshal(data, &out); err != nil {
+			return fmt.Errorf("upload response: %w", err)
+		}
+		if out.Result.Value != "Success" || out.DocID == "" {
+			if c.Trace != nil {
+				c.Trace(map[string]any{"stage": "upload_failed", "status": resp.StatusCode, "response": string(data[:func() int {
+					if len(data) < 500 {
+						return len(data)
+					}
+					return 500
+				}()])})
+			}
+			return fmt.Errorf("upload failed: %s", strings.TrimSpace(string(data)))
+		}
+		a.DocID = out.DocID
+		a.FileType = strings.TrimPrefix(strings.ToLower(out.FileType), ".")
+		// ChatHub's ImageFile annotation uses jpg for JPEG uploads.
+		if a.FileType == "jpeg" {
+			a.FileType = "jpg"
+		}
+		if a.Name == "" {
+			a.Name = out.FileName
+		}
+		if c.Trace != nil {
+			c.Trace(map[string]any{"stage": "upload_success", "doc_id": a.DocID, "file_name": a.Name, "file_type": a.FileType})
+		}
+	}
+	return nil
+}
+
 func chatPayload(text, sessionID, conversationID, requestID, tone string, firstTurn bool, attachments []Attachment, tools []Tool, toolChoice any) string {
 	text = toolProtocolPrompt(text, tools, toolChoice)
+	message := map[string]any{
+		"author":                "user",
+		"attachments":           attachments,
+		"inputMethod":           "Keyboard",
+		"text":                  text,
+		"entityAnnotationTypes": []string{"People", "File", "Event", "Email", "TeamsMessage"},
+		"requestId":             requestID,
+		"locationInfo": map[string]any{
+			"timeZoneOffset": 8,
+			"timeZone":       "Asia/Shanghai",
+		},
+		"locale":            "zh-cn",
+		"messageType":       "Chat",
+		"experienceType":    "Default",
+		"adaptiveCards":     []any{},
+		"clientPreferences": map[string]any{},
+	}
+	// The browser does not send an OpenAI attachments array to ChatHub. It
+	// sends a file annotation after the file has been uploaded by Office.
+	annotations := make([]any, 0, len(attachments))
+	for _, a := range attachments {
+		if a.Type != "image" || a.DocID == "" {
+			continue
+		}
+		if a.Name == "" {
+			a.Name = "image." + a.FileType
+		}
+		fileType := a.FileType
+		if fileType == "" {
+			fileType = strings.TrimPrefix(strings.ToLower(a.MimeType), "image/")
+		}
+		if fileType == "" || fileType == "image" || fileType == "*" {
+			fileType = "jpg"
+		}
+		annotations = append(annotations, map[string]any{
+			"id": a.DocID,
+			"messageAnnotationMetadata": map[string]any{
+				"@type": "File", "annotationType": "File",
+				"fileType": fileType, "fileName": a.Name,
+			},
+			"messageAnnotationType": "ImageFile",
+		})
+	}
+	if len(annotations) > 0 {
+		message["messageAnnotations"] = annotations
+		message["connectedFederatedConnections"] = []string{"dummyId"}
+	}
+	// Restore the old gateway's multimodal injection path. The historical
+	// implementation merged imageUrl/imageBase64 directly into message rather
+	// than relying solely on the newer attachments array.
+	for _, a := range attachments {
+		if a.Type != "image" || a.URL == "" {
+			continue
+		}
+		if strings.HasPrefix(a.URL, "data:") {
+			if comma := strings.IndexByte(a.URL, ','); comma >= 0 && comma+1 < len(a.URL) {
+				message["imageBase64"] = a.URL[comma+1:]
+			}
+		} else {
+			message["imageUrl"] = a.URL
+		}
+		break
+	}
+	optionsSets := []any{
+		"search_result_progress_messages_with_search_queries",
+		"update_textdoc_response_after_streaming",
+		"deepleo_networking_timeout_10minutes_canmore",
+		"cwc_flux_image",
+		"cwc_code_interpreter",
+		"cwc_code_interpreter_amsfix",
+		"cwcfluxgptv",
+		"flux_v3_gptv_enable_upload_multi_image_in_turn_wo_ch",
+		"gptvnorm2048",
+		"cwc_code_interpreter_citation_fix",
+		"code_interpreter_interactive_charts_inline_image",
+		"code_interpreter_matplotlib_patching",
+		"code_interpreter_interactive_charts",
+		"cwc_fileupload_odb",
+		"update_memory_plugin",
+		"add_custom_instructions",
+		"cwc_flux_v3",
+		"flux_v3_progress_messages",
+		"enable_batch_token_processing",
+		"enable_gg_gpt",
+	}
 	chat := map[string]any{
 		"arguments": []any{
 			map[string]any{
 				"source":              "officeweb",
 				"clientCorrelationId": uuid.NewString(),
 				"sessionId":           sessionID,
-				"optionsSets":         []any{},
+				"optionsSets":         optionsSets,
 				"options":             map[string]any{},
 				"allowedMessageTypes": []string{
 					"Chat", "EndOfRequest",
@@ -387,20 +599,8 @@ func chatPayload(text, sessionID, conversationID, requestID, tone string, firstT
 				},
 				"tone":          tone,
 				"streamingMode": "ConciseWithPadding",
-				"message": map[string]any{
-					"author":      "user",
-					"attachments": attachments,
-					"inputMethod": "Keyboard",
-					"text":        text,
-					"requestId":   requestID,
-					"locationInfo": map[string]any{
-						"timeZoneOffset": 8,
-						"timeZone":       "Asia/Shanghai",
-					},
-					"locale":         "en-US",
-					"messageType":    "Chat",
-					"experienceType": "Default",
-				},
+				"message":       message,
+
 				"plugins":    clientPlugins(tools),
 				"toolChoice": toolChoice,
 			},

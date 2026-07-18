@@ -14,7 +14,7 @@ const DefaultAuthority = "https://login.microsoftonline.com/common"
 // Set M365_REDIRECT_URI back to the nativeclient URI when using a tenant/client
 // registration that does not allow loopback redirects.
 const DefaultRedirectURI = "http://127.0.0.1:4141/api/auth/callback"
-const DefaultScope = "openid profile offline_access https://substrate.office.com/sydney/M365Chat.Read https://substrate.office.com/sydney/sydney.readwrite"
+const DefaultScope = "openid profile offline_access https://substrate.office.com/sydney/.default"
 
 func ClientID() string {
 	if v := os.Getenv("M365_CLIENT_ID"); v != "" {

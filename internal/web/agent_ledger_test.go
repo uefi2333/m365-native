@@ -57,6 +57,29 @@ func TestAgentLedgerDetectsRepeatedCallAndRoundLimit(t *testing.T) {
 	}
 }
 
+func TestActiveMessagesIgnoresOlderToolHistory(t *testing.T) {
+	var msgs []oaiMsg
+	for i := 0; i < 20; i++ {
+		id := fmt.Sprintf("old%d", i)
+		msgs = append(msgs,
+			oaiMsg{Role: "assistant", ToolCalls: []map[string]any{{"id": id, "type": "function", "function": map[string]any{"name": "old", "arguments": "{}"}}}},
+			oaiMsg{Role: "tool", ToolCallID: id, Content: "done"},
+		)
+	}
+	msgs = append(msgs, oaiMsg{Role: "user", Content: "continue with a new model"})
+	full := buildAgentLedger(msgs)
+	active := buildAgentLedger(activeMessages(msgs))
+	if full.ToolRounds < 20 {
+		t.Fatalf("expected full history tools, got %d", full.ToolRounds)
+	}
+	if active.ToolRounds != 0 {
+		t.Fatalf("new user turn should reset round limit scope, got %d", active.ToolRounds)
+	}
+	if err := active.CanContinue(16); err != nil {
+		t.Fatalf("new user turn blocked by old history: %v", err)
+	}
+}
+
 func TestCompletionGuardRejectsPendingAndUnsupportedSuccess(t *testing.T) {
 	l := buildAgentLedger([]oaiMsg{
 		{Role: "assistant", ToolCalls: []map[string]any{

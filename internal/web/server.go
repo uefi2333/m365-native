@@ -630,11 +630,13 @@ func (s *Server) openaiChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Rebuild a protocol-neutral evidence ledger from actual tool calls/results.
+	// Round limits apply only to the current user turn; full history still informs evidence.
 	ledger := buildAgentLedger(body.Messages)
-	if err := ledger.CanContinue(maxToolRounds()); err != nil {
+	activeLedger := buildAgentLedger(activeMessages(body.Messages))
+	if err := activeLedger.CanContinue(maxToolRounds()); err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusConflict)
-		_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]any{"type": "tool_round_limit", "message": err.Error(), "completed_calls": len(ledger.Completed)}})
+		_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]any{"type": "tool_round_limit", "message": err.Error(), "completed_calls": len(activeLedger.Completed)}})
 		return
 	}
 	// Flatten messages while preserving tool result identity and bounding noisy output.

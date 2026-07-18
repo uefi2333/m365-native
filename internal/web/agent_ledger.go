@@ -136,6 +136,21 @@ func maxToolRounds() int {
 	return 32
 }
 
+// activeMessages keeps only the current user turn and its follow-up tool loop.
+// Older completed tool history must not block model switches or new user turns.
+func activeMessages(messages []oaiMsg) []oaiMsg {
+	lastUser := -1
+	for i, m := range messages {
+		if m.Role == "user" {
+			lastUser = i
+		}
+	}
+	if lastUser <= 0 {
+		return messages
+	}
+	return messages[lastUser:]
+}
+
 func (l agentLedger) CanContinue(maxRounds int) error {
 	if maxRounds <= 0 {
 		maxRounds = 32

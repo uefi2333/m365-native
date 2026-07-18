@@ -218,7 +218,12 @@ func (s *Server) adminKeys(w http.ResponseWriter, r *http.Request) {
 		jsonOut(w, map[string]any{"key": raw, "record": rec})
 	case http.MethodDelete:
 		id := r.URL.Query().Get("id")
-		if !s.apiKeys.revoke(id) {
+		revoked, e := s.apiKeys.revoke(id)
+		if e != nil {
+			http.Error(w, e.Error(), http.StatusInternalServerError)
+			return
+		}
+		if !revoked {
 			http.Error(w, "key not found", 404)
 			return
 		}

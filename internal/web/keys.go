@@ -40,10 +40,15 @@ func openAPIKeys() *apiKeyStore {
 	}
 	return s
 }
-func (s *apiKeyStore) save() {
-	_ = os.MkdirAll(filepath.Dir(s.Path), 0700)
-	b, _ := json.MarshalIndent(s, "", "  ")
-	_ = os.WriteFile(s.Path, b, 0600)
+func (s *apiKeyStore) save() error {
+	if err := os.MkdirAll(filepath.Dir(s.Path), 0700); err != nil {
+		return err
+	}
+	b, err := json.MarshalIndent(s, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(s.Path, b, 0600)
 }
 func keyHash(k string) string { h := sha256.Sum256([]byte(k)); return hex.EncodeToString(h[:]) }
 func (s *apiKeyStore) create(name string) (apiKeyRecord, string, error) {
@@ -56,7 +61,10 @@ func (s *apiKeyStore) create(name string) (apiKeyRecord, string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.Keys = append(s.Keys, r)
-	s.save()
+	if err := s.save(); err != nil {
+		s.Keys = s.Keys[:len(s.Keys)-1]
+		return apiKeyRecord{}, "", err
+	}
 	return r, raw, nil
 }
 func (s *apiKeyStore) list() []apiKeyRecord {
@@ -69,17 +77,20 @@ func (s *apiKeyStore) list() []apiKeyRecord {
 	}
 	return out
 }
-func (s *apiKeyStore) revoke(id string) bool {
+func (s *apiKeyStore) revoke(id string) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for i := range s.Keys {
 		if s.Keys[i].ID == id && !s.Keys[i].Revoked {
 			s.Keys[i].Revoked = true
-			s.save()
-			return true
+			if err := s.save(); err != nil {
+				s.Keys[i].Revoked = false
+				return false, err
+			}
+			return true, nil
 		}
 	}
-	return false
+	return false, nil
 }
 func (s *apiKeyStore) valid(raw string) bool {
 	s.mu.Lock()
@@ -89,7 +100,7 @@ func (s *apiKeyStore) valid(raw string) bool {
 		if s.Keys[i].Hash == h && !s.Keys[i].Revoked {
 			now := time.Now()
 			s.Keys[i].LastUsedAt = &now
-			s.save()
+			_ = s.save()
 			return true
 		}
 	}

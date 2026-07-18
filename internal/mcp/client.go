@@ -39,12 +39,13 @@ type rpcError struct {
 }
 
 type Client struct {
-	cmd    *exec.Cmd
-	in     io.WriteCloser
-	out    *bufio.Reader
-	mu     sync.Mutex
-	nextID int64
-	closed bool
+	cmd       *exec.Cmd
+	in        io.WriteCloser
+	out       *bufio.Reader
+	mu        sync.Mutex
+	nextID    int64
+	closed    bool
+	toolCache ToolCache
 }
 
 func StartStdio(ctx context.Context, command string, args []string, env map[string]string) (*Client, error) {

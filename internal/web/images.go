@@ -56,7 +56,7 @@ func (s *Server) imageGenerations(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	res, err := s.chat.Chat(ctx, chathub.Account{AccessToken: acc.AccessToken, OID: acc.OID, TID: acc.TID}, chathub.Request{Text: "Generate an image: " + b.Prompt, Tone: "magic"})
 	if err != nil {
-		http.Error(w, err.Error(), 502)
+		http.Error(w, upstreamError(err), 502)
 		return
 	}
 	if len(res.Images) == 0 {

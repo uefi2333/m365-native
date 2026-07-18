@@ -54,7 +54,7 @@ func (s *Server) chatStream(w http.ResponseWriter, r *http.Request) {
 		Text: text, Tone: body.Tone, ConversationID: body.ConversationID, SessionID: body.SessionID, Attachments: body.Attachments,
 	})
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadGateway)
+		http.Error(w, upstreamError(err), http.StatusBadGateway)
 		return
 	}
 	if body.SessionKey != "" {

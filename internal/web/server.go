@@ -528,7 +528,7 @@ func (s *Server) chatOnce(w http.ResponseWriter, r *http.Request) {
 		Attachments:    body.Attachments,
 	})
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadGateway)
+		http.Error(w, upstreamError(err), http.StatusBadGateway)
 		return
 	}
 	if body.SessionKey != "" {
@@ -901,7 +901,7 @@ APPLICATION_REQUEST_AND_EVIDENCE:
 		if streamed {
 			return
 		}
-		http.Error(w, err.Error(), http.StatusBadGateway)
+		http.Error(w, upstreamError(err), http.StatusBadGateway)
 		return
 	}
 	if body.Stream {

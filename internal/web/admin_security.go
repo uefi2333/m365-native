@@ -52,8 +52,13 @@ func clientIP(r *http.Request) string {
 	// Trust proxy headers only when the direct peer is loopback (normal local reverse-proxy deployment).
 	host, _, _ := net.SplitHostPort(r.RemoteAddr)
 	if net.ParseIP(host).IsLoopback() {
-		if x := strings.TrimSpace(strings.Split(r.Header.Get("X-Forwarded-For"), ",")[0]); x != "" {
-			return x
+		// A trusted reverse proxy appends the client address to XFF. Use the
+		// right-most valid address rather than the attacker-controlled first one.
+		parts := strings.Split(r.Header.Get("X-Forwarded-For"), ",")
+		for i := len(parts) - 1; i >= 0; i-- {
+			if ip := net.ParseIP(strings.TrimSpace(parts[i])); ip != nil {
+				return ip.String()
+			}
 		}
 	}
 	if host != "" {
@@ -85,9 +90,22 @@ func (s *Server) loginAllowed(ip string, now time.Time) (bool, time.Duration) {
 	}
 	return true, 0
 }
+
+const maxLoginAttemptEntries = 4096
+
 func (s *Server) recordLoginFailure(ip string, now time.Time) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if _, exists := s.loginAttempts[ip]; !exists && len(s.loginAttempts) >= maxLoginAttemptEntries {
+		for key, attempt := range s.loginAttempts {
+			if now.Sub(attempt.WindowStart) > 15*time.Minute && now.After(attempt.LockedUntil) {
+				delete(s.loginAttempts, key)
+			}
+		}
+		if len(s.loginAttempts) >= maxLoginAttemptEntries {
+			return
+		}
+	}
 	a := s.loginAttempts[ip]
 	if a.WindowStart.IsZero() || now.Sub(a.WindowStart) > 15*time.Minute {
 		a = loginAttempt{WindowStart: now}

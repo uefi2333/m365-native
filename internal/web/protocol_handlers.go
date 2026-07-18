@@ -44,7 +44,12 @@ func (s *Server) streamResponsesAdapter(w http.ResponseWriter, r *http.Request, 
 	r2.ContentLength = int64(len(b))
 	pr, pw := io.Pipe()
 	irw := &pipeResponseWriter{h: make(http.Header), w: pw}
-	go func() { s.openaiChat(irw, r2); _ = pw.Close() }()
+	innerDone := make(chan struct{})
+	go func() {
+		s.openaiChat(irw, r2)
+		_ = pw.Close()
+		close(innerDone)
+	}()
 
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
@@ -117,6 +122,21 @@ func (s *Server) streamResponsesAdapter(w http.ResponseWriter, r *http.Request, 
 				}
 			}
 		}
+	}
+	<-innerDone
+	if scanner.Err() != nil || irw.status >= http.StatusBadRequest {
+		status := irw.status
+		if status == 0 {
+			status = http.StatusBadGateway
+		}
+		emit("response.failed", map[string]any{
+			"type": "response.failed",
+			"response": map[string]any{
+				"id": id, "object": "response", "status": "failed", "model": model,
+				"error": map[string]any{"code": status, "message": "inner chat request failed"},
+			},
+		})
+		return
 	}
 	if len(calls) == 0 && strings.TrimSpace(text.String()) == "" {
 		// Never leave a Responses stream after response.created without a

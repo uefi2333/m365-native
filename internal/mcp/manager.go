@@ -5,11 +5,28 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 )
 
 type ManagedServer struct {
-	Name   string
-	Client *Client
+	Name          string
+	Config        ServerConfig
+	Client        *Client
+	Status        string
+	ToolCount     int
+	StartedAt     time.Time
+	LastRefreshAt time.Time
+	LastError     string
+}
+
+type ServerStatus struct {
+	Name          string    `json:"name"`
+	Enabled       bool      `json:"enabled"`
+	Status        string    `json:"status"`
+	ToolCount     int       `json:"toolCount"`
+	StartedAt     time.Time `json:"startedAt,omitempty"`
+	LastRefreshAt time.Time `json:"lastRefreshAt,omitempty"`
+	LastError     string    `json:"lastError,omitempty"`
 }
 
 type Manager struct {
@@ -34,14 +51,15 @@ func (m *Manager) Start(ctx context.Context, cfg Config) error {
 			m.Close()
 			return fmt.Errorf("initialize MCP server %q: %w", spec.Name, err)
 		}
-		if _, err := c.RefreshTools(ctx); err != nil {
+		server := &ManagedServer{Name: spec.Name, Config: spec, Client: c, Status: "running", StartedAt: time.Now()}
+		m.mu.Lock()
+		m.servers[spec.Name] = server
+		m.mu.Unlock()
+		if err := m.Refresh(ctx, spec.Name); err != nil {
 			c.Close()
 			m.Close()
 			return fmt.Errorf("list tools from MCP server %q: %w", spec.Name, err)
 		}
-		m.mu.Lock()
-		m.servers[spec.Name] = &ManagedServer{Name: spec.Name, Client: c}
-		m.mu.Unlock()
 	}
 	return nil
 }
@@ -53,6 +71,38 @@ func (m *Manager) Close() {
 		_ = server.Client.Close()
 		delete(m.servers, name)
 	}
+}
+
+func (m *Manager) Refresh(ctx context.Context, name string) error {
+	m.mu.RLock()
+	server, ok := m.servers[name]
+	m.mu.RUnlock()
+	if !ok {
+		return fmt.Errorf("MCP server not found: %s", name)
+	}
+	tools, err := server.Client.RefreshTools(ctx)
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if err != nil {
+		server.Status = "error"
+		server.LastError = err.Error()
+		return err
+	}
+	server.Status = "running"
+	server.ToolCount = len(tools)
+	server.LastRefreshAt = time.Now()
+	server.LastError = ""
+	return nil
+}
+
+func (m *Manager) Statuses() []ServerStatus {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	out := make([]ServerStatus, 0, len(m.servers))
+	for _, server := range m.servers {
+		out = append(out, ServerStatus{Name: server.Name, Enabled: server.Config.Enabled, Status: server.Status, ToolCount: server.ToolCount, StartedAt: server.StartedAt, LastRefreshAt: server.LastRefreshAt, LastError: server.LastError})
+	}
+	return out
 }
 
 func (m *Manager) Tools() []Tool {

@@ -789,13 +789,7 @@ func (s *Server) openaiChat(w http.ResponseWriter, r *http.Request) {
 	if body.ToolChoice == nil && len(toolMaps) > 0 {
 		body.ToolChoice = "auto"
 	}
-	// ChatHub does not reliably return native tool events. Keep ordinary
-	// requests direct, and use the established XML/fenced translation router
-	// only when the caller actually supplied callable tools.
-	planningMode := "direct"
-	if shouldUseToolRouter(body.Messages, toolMaps, body.ToolChoice) {
-		planningMode = "router"
-	}
+	planningMode := s.settings.get().ToolPlanningMode
 
 	ctx, cancel := context.WithTimeout(r.Context(), time.Duration(s.settings.get().ChatTimeoutSeconds)*time.Second)
 	defer cancel()
@@ -843,9 +837,7 @@ func (s *Server) openaiChat(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if body.Stream {
-		ledgerContext := ledger.RouterContext()
-		answerPrompt := prompt + "\n" + ledgerContext + "\nFINAL ANSWER RULE: Answer the user directly. If a tool is explicitly required, emit its structured call; otherwise return ordinary text."
-		log.Printf("[prompt-trace] stream base=%d ledger=%d tools=%d messages=%d final=%d", len(prompt), len(ledgerContext), len(toolMaps), len(body.Messages), len(answerPrompt))
+		answerPrompt := prompt + "\n" + ledger.RouterContext() + "\nFINAL ANSWER RULE: Answer the user directly. If a tool is explicitly required, emit its structured call; otherwise return ordinary text."
 		answerReq := chathub.Request{Text: answerPrompt, Tone: tone, ConversationID: body.ConversationID, SessionID: body.SessionID, Attachments: body.Attachments, Tools: body.Tools, ToolChoice: body.ToolChoice}
 		id := "chatcmpl-" + uuid.NewString()
 		model := firstNonEmpty(body.Model, "m365-copilot")
@@ -887,13 +879,6 @@ func (s *Server) openaiChat(w http.ResponseWriter, r *http.Request) {
 			text.WriteString(ev.Text)
 			pending.WriteString(ev.Text)
 			v := pending.String()
-			// When tools are declared, do not stream prose before the complete
-			// turn is classified. A model may begin a fenced tool call with a
-			// natural-language preamble; emitting that preamble would let a
-			// hallucinated "tool completed" claim reach the caller.
-			if len(toolMaps) > 0 {
-				return nil
-			}
 			if i := strings.Index(v, "```"); i >= 0 {
 				emitText(v[:i])
 				pending.Reset()
@@ -930,7 +915,6 @@ func (s *Server) openaiChat(w http.ResponseWriter, r *http.Request) {
 		if len(calls) == 0 {
 			calls = fencedToolCalls(text.String(), toolMaps, body.ToolChoice)
 		}
-		log.Printf("[tool-trace] declared=%d streamed=%d fenced=%d text_len=%d text_preview=%q", len(toolMaps), len(streamedTools), len(calls), text.Len(), compactToolResult(text.String(), 1200))
 		if len(calls) > 0 {
 			calls = limitToolCalls(calls, configuredToolCallLimit(s.settings))
 			_ = writeToolResponse(w, id, model, true, calls, chathub.Result{Text: text.String()}, true)
@@ -994,9 +978,7 @@ APPLICATION_REQUEST_AND_EVIDENCE:
 			return
 		}
 	}
-	ledgerContext := ledger.RouterContext()
-	answerPrompt := prompt + "\n" + ledgerContext + "\nFINAL ANSWER RULE: Report only actions supported by completed tool results. If the goal is not fully verified, state exactly what remains unconfirmed."
-	log.Printf("[prompt-trace] sync base=%d ledger=%d tools=%d messages=%d final=%d", len(prompt), len(ledgerContext), len(toolMaps), len(body.Messages), len(answerPrompt))
+	answerPrompt := prompt + "\n" + ledger.RouterContext() + "\nFINAL ANSWER RULE: Report only actions supported by completed tool results. If the goal is not fully verified, state exactly what remains unconfirmed."
 	answerReq := chathub.Request{Text: answerPrompt, Tone: tone, ConversationID: body.ConversationID, SessionID: body.SessionID, Attachments: body.Attachments}
 	if planningMode == "native" {
 		answerReq.Tools = body.Tools

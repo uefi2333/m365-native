@@ -930,6 +930,7 @@ func (s *Server) openaiChat(w http.ResponseWriter, r *http.Request) {
 		if len(calls) == 0 {
 			calls = fencedToolCalls(text.String(), toolMaps, body.ToolChoice)
 		}
+		log.Printf("[tool-trace] declared=%d streamed=%d fenced=%d text_len=%d text_preview=%q", len(toolMaps), len(streamedTools), len(calls), text.Len(), compactToolResult(text.String(), 1200))
 		if len(calls) > 0 {
 			calls = limitToolCalls(calls, configuredToolCallLimit(s.settings))
 			_ = writeToolResponse(w, id, model, true, calls, chathub.Result{Text: text.String()}, true)

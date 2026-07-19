@@ -887,6 +887,13 @@ func (s *Server) openaiChat(w http.ResponseWriter, r *http.Request) {
 			text.WriteString(ev.Text)
 			pending.WriteString(ev.Text)
 			v := pending.String()
+			// When tools are declared, do not stream prose before the complete
+			// turn is classified. A model may begin a fenced tool call with a
+			// natural-language preamble; emitting that preamble would let a
+			// hallucinated "tool completed" claim reach the caller.
+			if len(toolMaps) > 0 {
+				return nil
+			}
 			if i := strings.Index(v, "```"); i >= 0 {
 				emitText(v[:i])
 				pending.Reset()

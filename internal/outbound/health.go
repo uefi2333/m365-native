@@ -46,7 +46,7 @@ func (p *Pool) Check(ctx context.Context, raw string) (time.Duration, error) {
 	}
 	target := os.Getenv("M365_PROXY_HEALTH_URL")
 	if target == "" {
-		target = "https://www.msftconnecttest.com/connecttest.txt"
+		target = "http://www.msftconnecttest.com/connecttest.txt"
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
 	if err != nil {

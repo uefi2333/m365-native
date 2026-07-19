@@ -789,7 +789,13 @@ func (s *Server) openaiChat(w http.ResponseWriter, r *http.Request) {
 	if body.ToolChoice == nil && len(toolMaps) > 0 {
 		body.ToolChoice = "auto"
 	}
-	planningMode := s.settings.get().ToolPlanningMode
+	// Tool routing is protocol-driven: forward declared tools once and let the
+	// upstream emit tool events. The legacy router remains in the file for
+	// rollback, but is not selected for request handling.
+	planningMode := "native"
+	if len(toolMaps) == 0 || normalizedToolChoiceMode(body.ToolChoice) == "none" {
+		planningMode = "direct"
+	}
 
 	ctx, cancel := context.WithTimeout(r.Context(), time.Duration(s.settings.get().ChatTimeoutSeconds)*time.Second)
 	defer cancel()

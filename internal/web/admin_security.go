@@ -20,6 +20,9 @@ type loginAttempt struct {
 }
 
 func adminPasswordPath() string {
+	if dir := strings.TrimSpace(os.Getenv("M365_DATA_DIR")); dir != "" {
+		return filepath.Join(dir, "admin-password")
+	}
 	if p := strings.TrimSpace(os.Getenv("M365_ADMIN_PASSWORD_FILE")); p != "" {
 		return p
 	}

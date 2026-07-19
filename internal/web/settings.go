@@ -89,6 +89,9 @@ func defaultRuntimeSettings() runtimeSettings {
 	}
 }
 func settingsPath() string {
+	if dir := strings.TrimSpace(os.Getenv("M365_DATA_DIR")); dir != "" {
+		return filepath.Join(dir, "settings.json")
+	}
 	if p := strings.TrimSpace(os.Getenv("M365_SETTINGS_FILE")); p != "" {
 		return p
 	}

@@ -34,6 +34,9 @@ type Store struct {
 }
 
 func CachePath() string {
+	if dir := os.Getenv("M365_DATA_DIR"); dir != "" {
+		return filepath.Join(dir, "accounts.json")
+	}
 	if p := os.Getenv("M365_CONFIG"); p != "" {
 		return p
 	}

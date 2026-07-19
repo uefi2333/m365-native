@@ -85,6 +85,7 @@ func (s *Server) Routes() http.Handler {
 	m.HandleFunc("/api/admin/debug/logs", s.debugList)
 	m.HandleFunc("/api/admin/debug/detail", s.debugDetail)
 	m.HandleFunc("/api/health", s.health)
+	m.HandleFunc("/api/version", s.version)
 	m.HandleFunc("/api/accounts", s.accounts)
 	m.HandleFunc("/api/accounts/refresh", s.refreshAccount)
 	m.HandleFunc("/api/accounts/delete", s.deleteAccount)

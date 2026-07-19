@@ -155,7 +155,11 @@ func New(raw string) (*Clients, error) {
 		c.HTTP.Transport.(*http.Transport).Proxy = http.ProxyURL(u)
 		c.WebSocket.Proxy = http.ProxyURL(u)
 	case "https":
-		c.HTTP.Transport.(*http.Transport).Proxy = http.ProxyURL(u)
+		// Do not use Transport.Proxy here: Go's standard transport performs its
+		// own proxy TLS handshake and bypasses our IP-certificate compatibility.
+		transport := c.HTTP.Transport.(*http.Transport)
+		transport.Proxy = nil
+		transport.DialContext = httpsProxyDialer{proxyURL: u}.DialContext
 		c.WebSocket.NetDialContext = httpsProxyDialer{proxyURL: u}.DialContext
 	case "socks5":
 		var a *proxy.Auth

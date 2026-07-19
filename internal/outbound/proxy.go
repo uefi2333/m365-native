@@ -64,6 +64,8 @@ func ConfigurePool(raw []string) error {
 	return nil
 }
 
+func CurrentPool() *Pool { clientsMu.RLock(); defer clientsMu.RUnlock(); return proxyPool }
+
 func ProxyPoolStatus() []map[string]any {
 	clientsMu.RLock()
 	p := proxyPool

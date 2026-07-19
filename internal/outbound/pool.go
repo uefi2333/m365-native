@@ -10,10 +10,13 @@ import (
 )
 
 type poolEntry struct {
-	raw      string
-	clients  *Clients
-	failures int
-	cooldown time.Time
+	raw       string
+	clients   *Clients
+	failures  int
+	cooldown  time.Time
+	lastCheck time.Time
+	latency   time.Duration
+	lastError string
 }
 type Pool struct {
 	mu      sync.Mutex
@@ -94,7 +97,7 @@ func (p *Pool) List() []map[string]any {
 	defer p.mu.Unlock()
 	out := make([]map[string]any, 0, len(p.entries))
 	for _, e := range p.entries {
-		out = append(out, map[string]any{"url": e.raw, "failures": e.failures, "cooldownUntil": e.cooldown})
+		out = append(out, map[string]any{"url": e.raw, "failures": e.failures, "cooldownUntil": e.cooldown, "lastCheck": e.lastCheck, "latencyMs": e.latency.Milliseconds(), "lastError": e.lastError})
 	}
 	return out
 }

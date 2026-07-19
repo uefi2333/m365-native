@@ -5,16 +5,11 @@ import "os"
 // Office web Copilot first-party client (verified working with ChatHub via browser PKCE).
 // The default authority is multi-tenant so any supported Microsoft account can sign in.
 // Device-code/FOCI client can still be forced via M365_CLIENT_ID.
-const DefaultClientID = "efcea265-005c-4f0a-97c2-b3ab369c8484"
-const DefaultTenantID = "common"
+const DefaultClientID = "c0ab8ce9-e9a0-42e7-b064-33d422df41f1"
 const FOCIClientID = "d3590ed6-52b3-4102-aeff-aad2292ab01c"
 const DefaultAuthority = "https://login.microsoftonline.com/common"
-
-// Loopback callback lets the browser return to the running gateway automatically.
-// Set M365_REDIRECT_URI back to the nativeclient URI when using a tenant/client
-// registration that does not allow loopback redirects.
-const DefaultRedirectURI = "http://127.0.0.1:4141/api/auth/callback"
-const DefaultScope = "openid profile offline_access https://substrate.office.com/sydney/.default"
+const DefaultRedirectURI = "https://login.microsoftonline.com/common/oauth2/nativeclient"
+const DefaultScope = "openid profile offline_access https://substrate.office.com/sydney/M365Chat.Read https://substrate.office.com/sydney/sydney.readwrite"
 
 func ClientID() string {
 	if v := os.Getenv("M365_CLIENT_ID"); v != "" {

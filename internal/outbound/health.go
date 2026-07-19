@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"os"
 	"time"
 )
 
@@ -20,7 +21,11 @@ func (p *Pool) Check(ctx context.Context, raw string) (time.Duration, error) {
 	if e == nil {
 		return 0, http.ErrNoLocation
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://www.msftconnecttest.com/connecttest.txt", nil)
+	target := os.Getenv("M365_PROXY_HEALTH_URL")
+	if target == "" {
+		target = "https://www.msftconnecttest.com/connecttest.txt"
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
 	if err != nil {
 		return 0, err
 	}
@@ -31,10 +36,13 @@ func (p *Pool) Check(ctx context.Context, raw string) (time.Duration, error) {
 		p.mark(raw, err)
 		return latency, err
 	}
+	status := resp.Status
 	resp.Body.Close()
+	// Any HTTP response proves the proxy connection and HTTP exchange worked.
+	// 5xx is reported separately as an upstream/gateway response, not a dial failure.
 	if resp.StatusCode >= 500 {
-		p.mark(raw, http.ErrServerClosed)
-		return latency, fmt.Errorf("health check returned %s", resp.Status)
+		p.mark(raw, nil)
+		return latency, fmt.Errorf("proxy reachable; upstream returned %s", status)
 	}
 	p.mark(raw, nil)
 	return latency, nil

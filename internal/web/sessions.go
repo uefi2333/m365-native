@@ -21,9 +21,10 @@ type conversation struct {
 }
 
 type sessionStore struct {
-	mu   sync.Mutex
-	path string
-	data map[string]conversation
+	mu    sync.Mutex
+	path  string
+	data  map[string]conversation
+	locks map[string]*sync.Mutex
 }
 
 func openSessionStore() *sessionStore {
@@ -31,7 +32,7 @@ func openSessionStore() *sessionStore {
 	if path == "" {
 		path = filepath.Join(os.TempDir(), "m365-native-sessions.json")
 	}
-	s := &sessionStore{path: path, data: map[string]conversation{}}
+	s := &sessionStore{path: path, data: map[string]conversation{}, locks: map[string]*sync.Mutex{}}
 	if b, err := os.ReadFile(path); err == nil {
 		_ = json.Unmarshal(b, &s.data)
 	}
@@ -55,10 +56,19 @@ func (s *sessionStore) list() []conversation {
 }
 
 func (s *sessionStore) get(id string) (conversation, bool) {
+	return s.getForAccount(id, "")
+}
+
+// getForAccount prevents a caller that explicitly selected another account
+// from silently inheriting the previous account's M365 ConversationId.
+func (s *sessionStore) getForAccount(id, accountID string) (conversation, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	v, ok := s.data[id]
-	return v, ok
+	if !ok || (accountID != "" && v.AccountID != "" && v.AccountID != accountID) {
+		return conversation{}, false
+	}
+	return v, true
 }
 
 func (s *sessionStore) upsert(v conversation) conversation {
@@ -75,6 +85,25 @@ func (s *sessionStore) upsert(v conversation) conversation {
 	s.data[v.ID] = v
 	s.saveLocked()
 	return v
+}
+
+func (s *sessionStore) lockSession(accountID, sessionKey string) func() {
+	if sessionKey == "" {
+		return func() {}
+	}
+	key := accountID + "\x00" + sessionKey
+	s.mu.Lock()
+	if s.locks == nil {
+		s.locks = map[string]*sync.Mutex{}
+	}
+	lock := s.locks[key]
+	if lock == nil {
+		lock = &sync.Mutex{}
+		s.locks[key] = lock
+	}
+	s.mu.Unlock()
+	lock.Lock()
+	return lock.Unlock
 }
 
 func (s *sessionStore) delete(id string) bool {

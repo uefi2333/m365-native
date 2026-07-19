@@ -78,7 +78,7 @@ func envInt(name string, fallback int) int {
 }
 func defaultRuntimeSettings() runtimeSettings {
 	return runtimeSettings{
-		MaxToolCallsPerTurn: envInt("M365_MAX_TOOL_CALLS_PER_TURN", 1), MaxToolRounds: envInt("M365_MAX_TOOL_ROUNDS", 16),
+		MaxToolCallsPerTurn: envInt("M365_MAX_TOOL_CALLS_PER_TURN", 8), MaxToolRounds: envInt("M365_MAX_TOOL_ROUNDS", 16),
 		ContextWindow: envInt("M365_CONTEXT_WINDOW", 128000), MaxOutputTokens: envInt("M365_MAX_OUTPUT_TOKENS", 16384),
 		ChatTimeoutSeconds: envInt("M365_CHAT_TIMEOUT_SECONDS", 120), ImageTimeoutSeconds: envInt("M365_IMAGE_TIMEOUT_SECONDS", 150), LogLevel: firstNonEmptySetting(os.Getenv("M365_LOG_LEVEL"), "info"),
 		DebugLogPath: os.Getenv("M365_DEBUG_LOG"), ListenAddress: os.Getenv("M365_LISTEN"), ConfigPath: os.Getenv("M365_CONFIG"),

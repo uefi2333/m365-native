@@ -5,6 +5,14 @@ import (
 	"testing"
 )
 
+func TestCompactRouterRequestBoundsLargePrompt(t *testing.T) {
+	prompt := strings.Repeat("a", 20000)
+	got := compactRouterRequest(prompt)
+	if len(got) > 16200 || !strings.Contains(got, "router context truncated") {
+		t.Fatalf("compact length=%d", len(got))
+	}
+}
+
 func TestParseModelToolDecisionAutoAndParallel(t *testing.T) {
 	calls, ok := parseModelToolDecision(`{"calls":[{"name":"get_weather","arguments":{"city":"Beijing"}},{"name":"get_time","arguments":{"city":"Beijing"}}]}`, testTools(), "auto")
 	if !ok || len(calls) != 2 {

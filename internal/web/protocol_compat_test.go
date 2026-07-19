@@ -25,7 +25,7 @@ func TestResponsesCustomExecToOpenAI(t *testing.T) {
 	}
 }
 
-func TestResponsesCustomExecIsExclusiveTool(t *testing.T) {
+func TestResponsesCustomExecKeepsPurposeBuiltTools(t *testing.T) {
 	r := responsesRequest{Input: "edit the project", Tools: []map[string]any{
 		{"type": "custom", "name": "exec", "description": "local execution"},
 		{"type": "function", "name": "m365_search", "description": "native search"},
@@ -34,10 +34,10 @@ func TestResponsesCustomExecIsExclusiveTool(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(o.Tools) != 1 || o.Tools[0].Type != "custom" {
-		t.Fatalf("tools=%#v, want only custom exec", o.Tools)
+	if len(o.Tools) != 2 || o.Tools[0].Type != "custom" || o.Tools[1].Type != "function" {
+		t.Fatalf("tools=%#v, want custom exec plus purpose-built function", o.Tools)
 	}
-	if !strings.Contains(fmt.Sprint(o.Messages[0].Content), "Never use") {
+	if !strings.Contains(fmt.Sprint(o.Messages[0].Content), "Prefer caller-provided purpose-built") {
 		t.Fatalf("missing native-tool prohibition: %#v", o.Messages)
 	}
 }

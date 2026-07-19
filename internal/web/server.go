@@ -564,7 +564,7 @@ func (s *Server) chatOnce(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if body.SessionKey != "" {
-		if v, ok := s.sessions.get(body.SessionKey); ok {
+		if v, ok := s.sessions.getForAccount(body.SessionKey, body.AccountID); ok {
 			body.AccountID = firstNonEmpty(body.AccountID, v.AccountID)
 			body.ConversationID = firstNonEmpty(body.ConversationID, v.ConversationID)
 			body.SessionID = firstNonEmpty(body.SessionID, v.SessionID)
@@ -587,19 +587,23 @@ func (s *Server) chatOnce(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	unlock := s.sessions.lockSession(acc.ID, body.SessionKey)
+	defer unlock()
+	route := classifyRoute(body.Tone, body.Tools, body.Attachments, false, strings.Contains(strings.ToLower(body.Tone), "reason"))
 	ctx, cancel := context.WithTimeout(r.Context(), time.Duration(s.settings.get().ChatTimeoutSeconds)*time.Second)
 	defer cancel()
-	res, err := s.chat.Chat(ctx, chathub.Account{
+	chatAccount := chathub.Account{
 		AccessToken: acc.AccessToken,
 		OID:         acc.OID,
 		TID:         acc.TID,
-	}, chathub.Request{
+	}
+	res, err := s.chatWithRecovery(ctx, chatAccount, chathub.Request{
 		Text:           text,
-		Tone:           body.Tone,
+		Tone:           route.Tone,
 		ConversationID: body.ConversationID,
 		SessionID:      body.SessionID,
 		Attachments:    body.Attachments,
-	})
+	}, acc.ID, body.SessionKey)
 	if err != nil {
 		http.Error(w, upstreamError(err), http.StatusBadGateway)
 		return
@@ -650,13 +654,17 @@ type oaiReq struct {
 	Messages       []oaiMsg        `json:"messages"`
 	Stream         bool            `json:"stream"`
 	// optional account routing
-	User           string               `json:"user"`
-	AccountID      string               `json:"accountId"`
-	ConversationID string               `json:"conversation_id"`
-	SessionID      string               `json:"session_id"`
-	SessionKey     string               `json:"session_key"`
-	Attachments    []chathub.Attachment `json:"attachments,omitempty"`
-	Tools          []chathub.Tool       `json:"tools,omitempty"`
+	User           string `json:"user"`
+	AccountID      string `json:"accountId"`
+	ConversationID string `json:"conversation_id"`
+	SessionID      string `json:"session_id"`
+	SessionKey     string `json:"session_key"`
+	// Camel-case aliases are accepted for native clients using the same body.
+	SessionKeyCamel     string               `json:"sessionKey,omitempty"`
+	ConversationIDCamel string               `json:"conversationId,omitempty"`
+	SessionIDCamel      string               `json:"sessionId,omitempty"`
+	Attachments         []chathub.Attachment `json:"attachments,omitempty"`
+	Tools               []chathub.Tool       `json:"tools,omitempty"`
 	// Legacy OpenAI-compatible clients still send functions/function_call.
 	Functions       []json.RawMessage `json:"functions,omitempty"`
 	ToolChoice      any               `json:"tool_choice,omitempty"`
@@ -685,6 +693,18 @@ func contentToString(c any) string {
 		return b.String()
 	default:
 		return fmt.Sprint(v)
+	}
+}
+
+func (body *oaiReq) normalizeSessionAliases() {
+	if body.SessionKey == "" {
+		body.SessionKey = body.SessionKeyCamel
+	}
+	if body.ConversationID == "" {
+		body.ConversationID = body.ConversationIDCamel
+	}
+	if body.SessionID == "" {
+		body.SessionID = body.SessionIDCamel
 	}
 }
 
@@ -725,6 +745,7 @@ func (s *Server) openaiChat(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad json", http.StatusBadRequest)
 		return
 	}
+	body.normalizeSessionAliases()
 	responseFormat := body.ResponseFormat
 	effort := body.ReasoningEffort
 	if body.Reasoning != nil && strings.TrimSpace(body.Reasoning.Effort) != "" {
@@ -764,14 +785,15 @@ func (s *Server) openaiChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	accountID := firstNonEmpty(body.AccountID, body.User)
 	if body.SessionKey != "" {
-		if v, ok := s.sessions.get(body.SessionKey); ok {
+		if v, ok := s.sessions.getForAccount(body.SessionKey, accountID); ok {
 			body.AccountID = firstNonEmpty(body.AccountID, v.AccountID)
 			body.ConversationID = firstNonEmpty(body.ConversationID, v.ConversationID)
 			body.SessionID = firstNonEmpty(body.SessionID, v.SessionID)
+			accountID = firstNonEmpty(accountID, v.AccountID)
 		}
 	}
-	accountID := firstNonEmpty(body.AccountID, body.User)
 	acc, err := s.resolveAccount(accountID)
 	if err != nil {
 		log.Printf("[account-route] resolve failed requested=%q err=%v", accountID, err)
@@ -801,6 +823,12 @@ func (s *Server) openaiChat(w http.ResponseWriter, r *http.Request) {
 		body.ToolChoice = "auto"
 	}
 	planningMode := s.settings.get().ToolPlanningMode
+	route := classifyRoute(firstNonEmpty(body.Model, tone), body.Tools, body.Attachments, body.Stream, strings.Contains(strings.ToLower(firstNonEmpty(body.Model, tone)), "reason") || effort != "")
+	if route.Tone != "magic" {
+		tone = route.Tone
+	}
+	unlock := s.sessions.lockSession(acc.ID, body.SessionKey)
+	defer unlock()
 
 	ctx, cancel := context.WithTimeout(r.Context(), time.Duration(s.settings.get().ChatTimeoutSeconds)*time.Second)
 	defer cancel()
@@ -841,9 +869,8 @@ func (s *Server) openaiChat(w http.ResponseWriter, r *http.Request) {
 				calls[i].ID = scopedCallID(calls[i].Name, string(calls[i].Arguments), i, scope)
 			}
 			calls = limitToolCalls(calls, configuredToolCallLimit(s.settings))
-			if body.SessionKey != "" {
-				s.sessions.upsert(conversation{ID: body.SessionKey, AccountID: acc.ID, ConversationID: routeRes.ConversationID, SessionID: routeRes.SessionID, Title: prompt})
-			}
+			// routeRes is an internal planning response. Do not write its transport
+			// session into the user's main SessionPool entry.
 			_ = writeToolResponse(w, "chatcmpl-"+uuid.NewString(), firstNonEmpty(body.Model, "m365-copilot"), true, calls, routeRes)
 			return
 		}
@@ -1034,7 +1061,7 @@ APPLICATION_REQUEST_AND_EVIDENCE:
 			flusher.Flush()
 		}
 	} else {
-		res, err = s.chat.Chat(ctx, account, answerReq)
+		res, err = s.chatWithRecovery(ctx, account, answerReq, acc.ID, body.SessionKey)
 	}
 	if err != nil {
 		if streamed {

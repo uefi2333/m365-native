@@ -27,7 +27,7 @@ func (s *Server) chatStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if body.SessionKey != "" {
-		if v, ok := s.sessions.get(body.SessionKey); ok {
+		if v, ok := s.sessions.getForAccount(body.SessionKey, body.AccountID); ok {
 			body.AccountID = firstNonEmpty(body.AccountID, v.AccountID)
 			body.ConversationID = firstNonEmpty(body.ConversationID, v.ConversationID)
 			body.SessionID = firstNonEmpty(body.SessionID, v.SessionID)
@@ -48,10 +48,13 @@ func (s *Server) chatStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	unlock := s.sessions.lockSession(acc.ID, body.SessionKey)
+	defer unlock()
+	route := classifyRoute(body.Tone, body.Tools, body.Attachments, true, strings.Contains(strings.ToLower(body.Tone), "reason"))
 	ctx, cancel := context.WithTimeout(r.Context(), 120*time.Second)
 	defer cancel()
 	res, err := s.chat.Chat(ctx, chathub.Account{AccessToken: acc.AccessToken, OID: acc.OID, TID: acc.TID}, chathub.Request{
-		Text: text, Tone: body.Tone, ConversationID: body.ConversationID, SessionID: body.SessionID, Attachments: body.Attachments,
+		Text: text, Tone: route.Tone, ConversationID: body.ConversationID, SessionID: body.SessionID, Attachments: body.Attachments,
 	})
 	if err != nil {
 		http.Error(w, upstreamError(err), http.StatusBadGateway)

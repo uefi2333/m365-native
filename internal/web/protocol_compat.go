@@ -24,7 +24,7 @@ type responsesRequest struct {
 	NewConversation    bool             `json:"new_conversation,omitempty"`
 }
 
-const customExecWorkspaceInstruction = `You are operating through the caller's local OpenCode execution bridge. Never use, request, or mention Microsoft 365/Copilot native tools. The only permitted execution tool is the caller-provided custom exec tool. The executor already starts in the caller-selected project workspace. Use relative paths only; never guess, cd to, or write under /root, /workspace, /tmp, or any other absolute project path. Inspect pwd and ls before changes. Do not create files outside the current working directory. Never claim a file was created, modified, or verified until custom exec returns a successful result. After every execution, use custom exec to verify the result.`
+const customExecWorkspaceInstruction = `You are operating through the caller's local OpenCode execution bridge. Prefer caller-provided purpose-built function tools whenever they match the request. Use the custom exec tool only as a fallback when no matching purpose-built tool is available or when the caller explicitly requests a command. The caller-provided custom exec tool is the fallback execution tool. The executor already starts in the caller-selected project workspace. Use relative paths only; never guess, cd to, or write under /root, /workspace, /tmp, or any other absolute project path. Inspect pwd and ls before changes. Do not create files outside the current working directory. Never claim a file was created, modified, or verified until custom exec returns a successful result. After every execution, use custom exec to verify the result.`
 
 func (r responsesRequest) openAI() (oaiReq, error) {
 	o := oaiReq{Model: r.Model, AccountID: r.AccountID, Stream: r.Stream, ToolChoice: r.ToolChoice, User: r.User}
@@ -109,9 +109,8 @@ func (r responsesRequest) openAI() (oaiReq, error) {
 	for _, t := range r.Tools {
 		typ, _ := t["type"].(string)
 		name, _ := t["name"].(string)
-		if hasCustomExec && !(typ == "custom" && name == "exec") {
-			continue
-		}
+		// Keep purpose-built function tools alongside custom exec. Exec is a
+		// fallback, not an exclusive replacement for tools supplied by the caller.
 		f := map[string]any{"name": t["name"], "description": t["description"], "parameters": t["parameters"]}
 		if typ == "custom" && name == "exec" {
 			// ChatHub accepts JSON function arguments while Codex exec accepts a

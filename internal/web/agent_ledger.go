@@ -31,11 +31,28 @@ type agentLedger struct {
 var failureSignal = regexp.MustCompile(`(?i)(exit\s*(code|status)?\s*[:=]?\s*[1-9]\d*|\berror\b|\bfailed\b|\bfailure\b|exception|traceback|timed?\s*out|permission denied|not found|refused)`)
 var unsupportedSuccess = regexp.MustCompile(`(?i)\b(installed|created|written|executed|ran|started|deployed|deleted|verified|completed|succeeded|successful(?:ly)?)\b`)
 
+var ansiEscape = regexp.MustCompile(`\x1b\[[0-?]*[ -/]*[@-~]`)
+
+// compactToolResult keeps tool output useful while protecting the model context.
+// It is deliberately conservative: errors, status lines, and both ends survive.
 func compactToolResult(s string, limit int) string {
-	s = strings.TrimSpace(s)
+	s = strings.TrimSpace(ansiEscape.ReplaceAllString(s, ""))
 	if limit < 200 {
 		limit = 200
 	}
+	if len(s) <= limit {
+		return s
+	}
+	lines := strings.Split(s, "\n")
+	collapsed := make([]string, 0, len(lines))
+	for _, line := range lines {
+		if len(collapsed) >= 2 && line == collapsed[len(collapsed)-1] && line == collapsed[len(collapsed)-2] {
+			collapsed[len(collapsed)-1] = "... [repeated line omitted] ..."
+			continue
+		}
+		collapsed = append(collapsed, line)
+	}
+	s = strings.Join(collapsed, "\n")
 	if len(s) <= limit {
 		return s
 	}

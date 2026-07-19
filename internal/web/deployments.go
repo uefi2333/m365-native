@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -38,6 +39,7 @@ type deploymentStore struct {
 
 var deployments *deploymentStore
 var cloudflareAPIBase = "https://api.cloudflare.com/client/v4"
+var workerNamePattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
 
 func openDeployments() *deploymentStore {
 	if deployments != nil {
@@ -82,7 +84,12 @@ func (s *Server) deployments(w http.ResponseWriter, r *http.Request) {
 		st.mu.Unlock()
 		jsonOut(w, map[string]any{"items": items})
 	case http.MethodPost:
-		var in struct{ Provider, Name, AccountID, Token string }
+		var in struct {
+			Provider  string `json:"provider"`
+			Name      string `json:"name"`
+			AccountID string `json:"accountId"`
+			Token     string `json:"token"`
+		}
 		if json.NewDecoder(http.MaxBytesReader(w, r.Body, 64*1024)).Decode(&in) != nil {
 			writeOpenAIError(w, 400, "invalid_request_error", "bad json")
 			return
@@ -147,7 +154,10 @@ func (s *Server) deploymentAction(w http.ResponseWriter, r *http.Request) {
 }
 func deployCloudflare(ctx context.Context, account, name, token string) (deployment, error) {
 	if account == "" || name == "" || token == "" {
-		return deployment{}, fmt.Errorf("accountId、name、token 都不能为空")
+		return deployment{}, fmt.Errorf("Account ID、Worker 名称和 API Token 都不能为空")
+	}
+	if !workerNamePattern.MatchString(name) {
+		return deployment{}, fmt.Errorf("Worker 名称只能包含字母、数字、短横线和下划线，长度不超过 64")
 	}
 	base := strings.TrimRight(cloudflareAPIBase, "/")
 	u := base + "/accounts/" + url.PathEscape(account) + "/workers/scripts/" + url.PathEscape(name)

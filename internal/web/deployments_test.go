@@ -42,10 +42,14 @@ func TestDeployCloudflareQueriesRealSubdomain(t *testing.T) {
 		t.Fatalf("auth=%q", gotAuth)
 	}
 	if !strings.Contains(gotScript, "/health") {
-		t.Fatal("deployed worker lacks health route")
+		t.Fatal("worker lacks health")
 	}
 }
-
+func TestDeployCloudflareRejectsBadName(t *testing.T) {
+	if _, err := deployCloudflare(context.Background(), "acct", "bad name", "secret"); err == nil {
+		t.Fatal("expected name validation")
+	}
+}
 func TestDeployCloudflareRejectsSubdomainFailure(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.Contains(r.URL.Path, "scripts") {
@@ -63,7 +67,6 @@ func TestDeployCloudflareRejectsSubdomainFailure(t *testing.T) {
 		t.Fatal("expected subdomain error")
 	}
 }
-
 func TestDeploymentCheckAddsHealthyURLToPool(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/health" {
@@ -94,6 +97,6 @@ func TestDeploymentCheckAddsHealthyURLToPool(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Fatalf("healthy URL was not added: %#v", outbound.ProxyPoolStatus())
+		t.Fatalf("not added: %#v", outbound.ProxyPoolStatus())
 	}
 }

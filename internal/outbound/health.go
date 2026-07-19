@@ -3,10 +3,23 @@ package outbound
 import (
 	"context"
 	"fmt"
+	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"time"
 )
+
+func redactProxy(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return "<invalid>"
+	}
+	if u.User != nil {
+		u.User = url.User(u.User.Username())
+	}
+	return u.String()
+}
 
 func (p *Pool) setHealth(raw, status string) {
 	p.mu.Lock()
@@ -45,6 +58,7 @@ func (p *Pool) Check(ctx context.Context, raw string) (time.Duration, error) {
 	if err != nil {
 		p.mark(raw, err)
 		p.setHealth(raw, "unreachable")
+		log.Printf("proxy health failed proxy=%s target=%s latency=%s err=%v", redactProxy(raw), target, lat, err)
 		return lat, err
 	}
 	status := resp.Status
